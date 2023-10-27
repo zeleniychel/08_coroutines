@@ -132,18 +132,20 @@ private val client = OkHttpClient.Builder()
 fun main() {
     with(CoroutineScope(EmptyCoroutineContext)) {
         launch {
-            val result = getPosts(client).map { PostWithComments(post = it, author = getAuthor(client, it.authorId)) }.toMutableList()
-            val commentsWithAuthor = getPosts(client).flatMap { post ->
-                val comments = getComments(client, post.id)
-                if (comments.isEmpty()){
-                    return@flatMap emptyList<CommentWithAuthor>()
-                }
-                comments.map { CommentWithAuthor(it, getAuthor(client, it.authorId)) }
+            try {
+                val posts = getPosts(client)
+                    .map { post ->
+                        async {
+                            val comments = getComments(client, post.id).map {comment ->
+                                    CommentWithAuthor(comment, getAuthor(client, comment.postId))
+                            }
+                            PostWithComments(post, comments, getAuthor(client, post.authorId))
+                        }
+                    }.awaitAll()
+                println(posts)
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-            result.forEach { post ->
-                post.copy(comments = commentsWithAuthor.filter { it.comment.postId == post.post.id })
-            }
-            println(result)
         }
     }
     Thread.sleep(30_000L)
@@ -187,7 +189,7 @@ suspend fun getComments(client: OkHttpClient, id: Long): List<Comment> =
     makeRequest("$BASE_URL/api/slow/posts/$id/comments", client, object : TypeToken<List<Comment>>() {})
 
 suspend fun getAuthor(client: OkHttpClient, authorId: Long): Author =
-    makeRequest("$BASE_URL/api/authors/$authorId", client, object : TypeToken<Author>() {})
+    makeRequest("$BASE_URL/api/slow/authors/$authorId", client, object : TypeToken<Author>() {})
 
 
 
